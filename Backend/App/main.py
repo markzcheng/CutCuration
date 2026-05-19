@@ -3,23 +3,27 @@ import csv
 import json
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 import google.generativeai as genai
 from dotenv import load_dotenv
 
-# Load environmental configs and keys
-load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# =====================================================================
+# 🛠️ DEVELOPER CONFIGURATION MATRIX
+# =====================================================================
+MOCK_DEV_MODE = True  # Toggle to FALSE to reactivate live Gemini execution pipelines
+# =====================================================================
 
-# Ingest your decoupled instructions and local FFmpeg module
+load_dotenv()
+if not MOCK_DEV_MODE:
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
 from prompts import EDITING_CONFIGS
 from preprocess import compress_video_for_analysis
 
-app = FastAPI(title="CutCuration Backend API")
+app = FastAPI(title="CutCuration Streaming Backend API")
 
-# Allow your local web dashboard to communicate with this API layer seamlessly
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -28,139 +32,233 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Core local directory path state matrix configurations
 VIDEO_INPUT_DIR = Path(__file__).resolve().parent.parent / "RawVideos"
 OPTIMIZED_DIR = Path(__file__).resolve().parent.parent / "OptimizedVideos"
 OUTPUT_DIR = Path(__file__).resolve().parent.parent
 
-class ProcessRequest(BaseModel):
-    mode: str  # Matches keys: "short_form_cooking" or "long_form_vlog"
+# Mock Data Payload Configuration Definition
+MOCK_CLIPS_DATA = [
+    {
+        "new_filename": "sizzling_garlic_butter_shrimp_15sec.mp4",
+        "description": "Extreme close-up shot of garlic slices bubbling rapidly in melted butter with high-frequency acoustic sizzle.",
+        "length_seconds": 15
+    },
+    {
+        "new_filename": "dicing_red_onions_speedrun_22sec.mp4",
+        "description": "Rhythmic, rapid chef knife strokes reducing a whole red onion into uniform fine dice against a wooden block surface.",
+        "length_seconds": 22
+    },
+    {
+        "new_filename": "boston_skyline_sunset_pan_45sec.mp4",
+        "description": "Cinematic wide panning sequence capturing the Prudential Tower silhouetted against a deep amber and purple sunset gradient.",
+        "length_seconds": 45
+    }
+]
 
-async def process_single_video(video_path: Path, config: dict):
-    """
-    Handles local FFmpeg compression step, uploads the lightweight proxy to Gemini, 
-    waits for processing to finish asynchronously, and returns isolated structured JSON data.
-    """
-    try:
-        # 1. Execute local compression step off the main thread to protect FastAPI loop
-        loop = asyncio.get_running_loop()
-        optimized_path = await loop.run_in_executor(
-            None, compress_video_for_analysis, video_path, OPTIMIZED_DIR
-        )
+MOCK_STRATEGIC_BLUEPRINT = """# MOCK EDITING BLUEPRINT STRATEGY (DEV MODE ACTIVE)
 
-        # 2. Upload the optimized proxy layout rather than the heavy raw file
-        print(f"Uploading optimized {optimized_path.name} to Gemini clusters...")
-        uploaded_file = genai.upload_file(path=optimized_path)
-        
-        # 3. Asynchronous Polling Loop running parallel checks every 5 seconds
-        while uploaded_file.state.name == "PROCESSING":
-            print(f"Waiting for {optimized_path.name} asset processing analysis...")
-            await asyncio.sleep(5)
-            uploaded_file = genai.get_file(uploaded_file.name)
-            
-        if uploaded_file.state.name == "FAILED":
-            raise Exception(f"Gemini processing failure exception on asset: {optimized_path.name}")
+## 1. THE HOOK (0:00 - 0:03)
+Start immediately with `sizzling_garlic_butter_shrimp_15sec.mp4`. Introduce the high-frequency ASMR sizzling noise within the first fraction of a second to anchor scrolling viewer attention immediately.
 
-        # 4. Request Analysis using the strict JSON prompt configurations
-        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-        response = await model.generate_content_async([uploaded_file, config["analysis_prompt"]])
-        
-        # Immediate cloud storage cleanup pass to keep things secure and tidy
-        genai.delete_file(uploaded_file.name)
-        
-        # Clean up Markdown ticks if the model returns them around our raw JSON
-        raw_text = response.text.strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-        raw_text = raw_text.strip()
+## 2. THE RHYTHMIC MID-SECTION (0:03 - 0:18)
+Cut aggressively on the beat to `dicing_red_onions_speedrun_22sec.mp4`. Match the speed of your visual cuts to the rhythmic tapping sound of the chef's knife contact points.
 
-        # Parse data structures safely to confirm compliance
-        parsed_json = json.loads(raw_text)
+## 3. THE GRAND PAYOFF & OUTRO (0:18 - 0:30)
+Transition gracefully into the wide aesthetic profile of `boston_skyline_sunset_pan_45sec.mp4`. Layer an ambient atmospheric audio track underneath to finalize the cinematic slice-of-life tone."""
+
+
+async def process_single_video_with_logs(video_path: Path, config: dict, log_queue: asyncio.Queue, semaphore: asyncio.Semaphore, idx: int):
+    """Processes a clip natively or routes into high-fidelity mock loops depending on state configurations."""
+    filename = video_path.name
+
+    if MOCK_DEV_MODE:
+        # Simulate local background pipeline pacing delays so frontend logs feel authentic
+        await log_queue.put(f"⚙️ [MOCK] Starting local preprocessing simulation for {filename}")
+        await asyncio.sleep(1.0)
+        await log_queue.put(f"⚡ [MOCK] Compressed {filename} down to 480p @ 1 FPS proxy")
+        await asyncio.sleep(0.8)
         
+        await log_queue.put(f"📤 [MOCK] Uploading optimized proxy for {filename} to sandbox memory storage nodes...")
+        await asyncio.sleep(1.2)
+        
+        await log_queue.put(f"⏳ [MOCK] Sandbox environment cluster is evaluating frame data layout for {filename}...")
+        await asyncio.sleep(1.5)
+        
+        await log_queue.put(f"🧠 [MOCK] Generating strict structured asset metadata strings for {filename}...")
+        await asyncio.sleep(0.5)
+
+        # Select a mock data object cyclically if there are more files than array definitions
+        mock_selection = MOCK_CLIPS_DATA[idx % len(MOCK_CLIPS_DATA)]
+        
+        await log_queue.put(f"✅ [MOCK] Finished indexing metadata for {filename}")
         return {
-            "original_filename": video_path.name,
-            "new_filename": parsed_json.get("new_filename", f"processed_{video_path.stem}.mp4"),
-            "description": parsed_json.get("description", "No description generated."),
-            "length_seconds": parsed_json.get("length_seconds", 0),
+            "original_filename": filename,
+            "new_filename": f"optimized_{filename.split('.')[0]}_{mock_selection['length_seconds']}sec.mp4",
+            "description": mock_selection["description"],
+            "length_seconds": mock_selection["length_seconds"],
             "status": "success"
         }
-        
-    except Exception as e:
-        print(f"Error handling clip processing on {video_path.name}: {str(e)}")
-        return {
-            "original_filename": video_path.name,
-            "new_filename": f"failed_{video_path.name}",
-            "description": f"Failed during pipeline operation: {str(e)}",
-            "length_seconds": 0,
-            "status": "error"
-        }
 
-@app.post("/api/process")
-async def process_pipeline(payload: ProcessRequest):
-    if payload.mode not in EDITING_CONFIGS:
-        raise HTTPException(status_code=400, detail="Invalid session mode string identifier.")
+    # --- LIVE PRODUCTION SYSTEM PIPELINE ---
+    async with semaphore:
+        try:
+            await log_queue.put(f"⚙️ Starting local preprocessing for {filename}")
+            loop = asyncio.get_running_loop()
+            optimized_path = await loop.run_in_executor(
+                None, compress_video_for_analysis, video_path, OPTIMIZED_DIR
+            )
+            await log_queue.put(f"⚡ Compressed {filename} down to 480p @ 1 FPS proxy")
+
+            await log_queue.put(f"📤 Uploading optimized proxy for {filename} to Gemini clusters...")
+            uploaded_file = genai.upload_file(path=optimized_path)
+            
+            while uploaded_file.state.name == "PROCESSING":
+                await log_queue.put(f"⏳ Gemini cluster is ingest-processing {filename}...")
+                await asyncio.sleep(5)
+                uploaded_file = genai.get_file(uploaded_file.name)
+                
+            if uploaded_file.state.name == "FAILED":
+                raise Exception(f"Gemini server-side parsing failed for: {filename}")
+
+            await log_queue.put(f"🧠 Running contextual analysis pass on {filename}...")
+            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+            response = await model.generate_content_async([uploaded_file, config["analysis_prompt"]])
+            
+            genai.delete_file(uploaded_file.name)
+            
+            raw_text = response.text.strip()
+            if raw_text.startswith("```json"): raw_text = raw_text[7:]
+            if raw_text.endswith("```"): raw_text = raw_text[:-3]
+            raw_text = raw_text.strip()
+
+            parsed_json = json.loads(raw_text)
+            await log_queue.put(f"✅ Finished indexing metadata for {filename}")
+            
+            await asyncio.sleep(2)
+            
+            return {
+                "original_filename": filename,
+                "new_filename": parsed_json.get("new_filename", f"processed_{video_path.stem}.mp4"),
+                "description": parsed_json.get("description", "No description generated."),
+                "length_seconds": parsed_json.get("length_seconds", 0),
+                "status": "success"
+            }
+        except Exception as e:
+            await log_queue.put(f"❌ Error handling asset {video_path.name}: {str(e)}")
+            return {
+                "original_filename": video_path.name,
+                "new_filename": f"failed_{video_path.name}",
+                "description": f"Failed during pipeline operation: {str(e)}",
+                "length_seconds": 0,
+                "status": "error"
+            }
+
+
+@app.get("/api/process/stream")
+async def stream_pipeline(mode: str = Query(...)):
+    if mode not in EDITING_CONFIGS:
+        raise HTTPException(status_code=400, detail="Invalid session mode profile identifier.")
         
-    if not VIDEO_INPUT_DIR.exists():
+    # Check physical folder state only if running in production mode
+    if not MOCK_DEV_MODE and not VIDEO_INPUT_DIR.exists():
         raise HTTPException(status_code=404, detail="RawVideos ingestion directory target path is missing.")
 
     # Target local file system arrays
-    video_extensions = {".mp4", ".mov", ".mkv", ".avi"}
-    video_files = [p for p in VIDEO_INPUT_DIR.iterdir() if p.suffix.lower() in video_extensions]
+    if VIDEO_INPUT_DIR.exists():
+        video_extensions = {".mp4", ".mov", ".mkv", ".avi"}
+        video_files = [p for p in VIDEO_INPUT_DIR.iterdir() if p.suffix.lower() in video_extensions]
+    else:
+        video_files = []
     
-    if not video_files:
-        return {"message": "No source videos found inside RawVideos directory setup.", "results": []}
+    # If the folder is empty or non-existent in Dev Mode, simulate standard mock file loops anyway
+    if not video_files and MOCK_DEV_MODE:
+        video_files = [Path("sample_clip_A.mp4"), Path("sample_clip_B.mov"), Path("sample_clip_C.mp4")]
+    elif not video_files:
+        async def empty_generator():
+            yield {"event": "error", "data": "No raw assets found inside RawVideos directory setup."}
+        return EventSourceResponse(empty_generator())
 
-    config = EDITING_CONFIGS[payload.mode]
-    
-    # Fire off parallel async processing across all your targeted items concurrently
-    tasks = [process_single_video(video, config) for video in video_files]
-    analysis_results = await asyncio.gather(*tasks)
+    config = EDITING_CONFIGS[mode]
+    shared_log_queue = asyncio.Queue()
+    rate_limiter = asyncio.Semaphore(2)
 
-    # --- ORIGINAL OUTPUT MECHANIC A: Write report.csv ---
-    csv_path = OUTPUT_DIR / "report.csv"
-    try:
-        with open(csv_path, mode="w", newline="", encoding="utf-8") as csv_file:
-            writer = csv.writer(csv_file)
-            # Write structured headings match
-            writer.writerow(["original_filename", "new_filename", "description", "length_seconds"])
-            for row in analysis_results:
-                if row["status"] == "success":
-                    writer.writerow([
-                        row["original_filename"],
-                        row["new_filename"],
-                        row["description"],
-                        row["length_seconds"]
-                    ])
-        print(f"Successfully generated local database artifact map: {csv_path.name}")
-    except Exception as csv_err:
-        print(f"Failed to compile report.csv engine files: {str(csv_err)}")
+    async def event_generator():
+        if MOCK_DEV_MODE:
+            yield {"event": "info", "data": "⚠️ NOTICE: CutCuration sandbox engine is running in MOCK_DEV_MODE."}
+            yield {"event": "info", "data": "Tokens and server bandwidth usage metrics are completely paused."}
+        
+        yield {"event": "info", "data": f"🚀 Initializing CutCuration pipeline in operational mode: {mode}"}
+        yield {"event": "info", "data": f"📂 Target task array generated: {len(video_files)} items registered."}
 
-    # --- Compile Cumulative Summary Context Matrix ---
-    valid_descriptions = [
-        f"File: {r['new_filename']} - Context: {r['description']}" 
-        for r in analysis_results if r["status"] == "success"
-    ]
-    combined_context = "\n".join(valid_descriptions)
-    
-    # Request strategic structural blueprint summary from Gemini clusters
-    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-    summary_response = await model.generate_content_async([config["summary_prompt"], combined_context])
-    strategic_blueprint = summary_response.text
+        # Spawn processing tasks concurrently, tracking item position index parameters
+        tasks = [
+            process_single_video_with_logs(video, config, shared_log_queue, rate_limiter, idx) 
+            for idx, video in enumerate(video_files)
+        ]
+        processing_future = asyncio.gather(*tasks)
 
-    # --- ORIGINAL OUTPUT MECHANIC B: Write summary.txt ---
-    txt_path = OUTPUT_DIR / "summary.txt"
-    try:
-        with open(txt_path, mode="w", encoding="utf-8") as txt_file:
-            txt_file.write(strategic_blueprint)
-        print(f"Successfully generated editing blueprint draft: {txt_path.name}")
-    except Exception as txt_err:
-        print(f"Failed to write physical summary.txt blueprint draft: {str(txt_err)}")
+        while not processing_future.done() or not shared_log_queue.empty():
+            try:
+                log_message = await asyncio.wait_for(shared_log_queue.get(), timeout=0.2)
+                yield {"event": "progress", "data": log_message}
+                shared_log_queue.task_done()
+            except asyncio.TimeoutError:
+                continue
 
-    # Return unified response to display on your HTML dashboard UI interface
-    return {
-        "mode_executed": payload.mode,
-        "individual_clips": [r for r in analysis_results if r["status"] == "success"],
-        "strategic_blueprint": strategic_blueprint
-    }
+        analysis_results = processing_future.result()
+
+        # --- ORIGINAL OUTPUT MECHANIC A: Write report.csv ---
+        valid_descriptions = []
+        success_count = 0
+        
+        csv_path = OUTPUT_DIR / "report.csv"
+        try:
+            with open(csv_path, mode="w", newline="", encoding="utf-8") as csv_file:
+                writer = csv.writer(csv_file)
+                writer.writerow(["original_filename", "new_filename", "description", "length_seconds"])
+                
+                for r in analysis_results:
+                    if isinstance(r, dict) and r.get("status") == "success":
+                        success_count += 1
+                        writer.writerow([r["original_filename"], r["new_filename"], r["description"], r["length_seconds"]])
+                        valid_descriptions.append(f"File: {r['new_filename']} - Context: {r['description']}")
+                        
+            yield {"event": "progress", "data": f"💾 Local database artifact map successfully written to: {csv_path.name}"}
+        except Exception as csv_err:
+            yield {"event": "progress", "data": f"⚠️ Local report generation warning: {str(csv_err)}"}
+
+        if not valid_descriptions:
+            yield {"event": "error", "data": "Pipeline stopped: None of the video targets were successfully processed."}
+            return
+
+        # --- Compile Cumulative Summary Context ---
+        yield {"event": "progress", "data": "📝 Passing cumulative context back to Gemini for strategic storyboard blueprint..."}
+        
+        if MOCK_DEV_MODE:
+            await asyncio.sleep(2.0)  # Simulate strategic generation delay frame
+            strategic_blueprint = MOCK_STRATEGIC_BLUEPRINT
+        else:
+            combined_context = "\n".join(valid_descriptions)
+            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+            summary_response = await model.generate_content_async([config["summary_prompt"], combined_context])
+            strategic_blueprint = summary_response.text
+
+        # --- ORIGINAL OUTPUT MECHANIC B: Write summary.txt ---
+        txt_path = OUTPUT_DIR / "summary.txt"
+        try:
+            with open(txt_path, mode="w", encoding="utf-8") as txt_file:
+                txt_file.write(strategic_blueprint)
+            yield {"event": "progress", "data": f"💾 Strategic text log written successfully to: {txt_path.name}"}
+        except Exception as txt_err:
+            yield {"event": "progress", "data": f"⚠️ Local summary file output write warning: {str(txt_err)}"}
+
+        # Send completion structure mapping back to HTML UI interface layout channels
+        yield {
+            "event": "complete",
+            "data": json.dumps({
+                "processed_count": success_count,
+                "blueprint": strategic_blueprint
+            })
+        }
+
+    return EventSourceResponse(event_generator())
