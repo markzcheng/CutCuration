@@ -18,5 +18,5 @@ venv/
 .DS_Store
 
 # Generated Reports
-backend/report.csv
-backend/summary.txt
+**/report.csv
+**/summary.txt
