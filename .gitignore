@@ -1,0 +1,22 @@
+# Secret Environment Variables
+backend/.env
+.env
+
+# Raw Video Files (Don't upload gigabytes of footage to GitHub!)
+backend/my_raw_videos/
+**/my_raw_videos/
+*.mp4
+*.mov
+*.mkv
+*.avi
+
+# Python specific files
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+
+# Generated Reports
+backend/report.csv
+backend/summary.txt
