@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CutCuration Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 CutCuration</h1>
+            <p>Automated Video Pipeline Studio</p>
+        </header>
+
+        <main>
+            <section class="controls-card">
+                <h2>Pipeline Configuration</h2>
+                <div class="form-group">
+                    <label for="sessionMode">Target Content Strategy</label>
+                    <select id="sessionMode">
+                        <option value="short_form_cooking">Viral Short-Form Cooking (ASMR / Hooks)</option>
+                        <option value="long_form_vlog">Long-Form Travel Vlog (Boston Diaries / Pillars)</option>
+                    </select>
+                </div>
+                <button id="processBtn">Kickoff AI Curation Engine</button>
+            </section>
+
+            <section class="status-container hidden" id="statusContainer">
+                <div class="spinner"></div>
+                <p id="statusText">Uploading and analyzing frames concurrently via Gemini clusters...</p>
+            </section>
+
+            <section class="results-layout hidden" id="resultsLayout">
+                <div class="card">
+                    <h3>Strategic Editing Blueprint</h3>
+                    <div id="blueprintContainer" class="markdown-preview"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="js/app.js"></script>
+</body>
+</html>
