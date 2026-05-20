@@ -1,0 +1,380 @@
+================================================================================
+CutCuration Repository - Complete Folder Structure & File Layout
+================================================================================
+
+PROJECT ROOT: /Users/markcheng/Code/CutCuration/
+
+================================================================================
+DIRECTORY TREE
+================================================================================
+
+CutCuration/
+│
+├── README.md                          [Project Overview & Setup]
+├── CODEBASE_FULL.txt                  [Complete condensed codebase]
+├── FOLDER_STRUCTURE.txt               [This file - complete file layout]
+│
+├── Backend/                           [Backend API & Processing Services]
+│   ├── App/                           [Main FastAPI application code]
+│   │   ├── main.py                    [FastAPI router - endpoints & SSE streams]
+│   │   ├── config.py                  [Configuration, env vars, mock data]
+│   │   ├── services.py                [Core Gemini API & video processing]
+│   │   ├── prompts.py                 [Editing strategies & prompt configs]
+│   │   ├── preprocess.py              [FFmpeg video compression utilities]
+│   │   └── tmp/                       [Temporary processing directory]
+│   │       └── description_assets/    [Temp optimized video staging]
+│   │
+│   ├── OptimizedVideos/               [Processed/compressed video output]
+│   ├── RawVideos/                     [Raw input video files]
+│   │
+│   ├── report.csv                     [Generated output: Video processing log]
+│   └── summary.txt                    [Generated output: Editing blueprint]
+│
+└── Frontend/                          [Web Dashboard UI]
+    ├── index.html                     [Main HTML dashboard page]
+    │
+    ├── css/
+    │   └── styles.css                 [Dashboard styling & animations]
+    │
+    └── js/
+        └── app.js                     [Frontend logic & API calls]
+
+
+================================================================================
+FILE DESCRIPTIONS & EDITING GUIDE
+================================================================================
+
+ROOT LEVEL
+================================================================================
+
+1. README.md
+   - Project overview, architecture diagram, setup instructions
+   - Technical explanations of concurrency patterns
+   - Development mode toggle documentation
+   EDIT THIS FOR: Project description changes, setup updates
+
+2. CODEBASE_FULL.txt (Generated)
+   - Condensed version of all code for Gemini context
+   - All source code in single file, organized by module
+   USE THIS: For Gemini uploading
+
+3. FOLDER_STRUCTURE.txt (This file - Generated)
+   - Complete directory layout with descriptions
+   - File relationship mapping
+   USE THIS: For Gemini to understand file organization
+
+
+BACKEND/APP/ - CORE APPLICATION CODE
+================================================================================
+
+1. main.py - FASTAPI ROUTER ENGINE
+   Location: Backend/App/main.py
+   Size: ~200 lines
+   
+   Contains:
+   - FastAPI app initialization with CORS middleware
+   - @app.get("/api/process/stream") - Main SSE endpoint for live pipeline
+   - @app.get("/api/videos") - Video discovery endpoint
+   - @app.post("/api/process/batch") - Batch processing stub
+   - pipeline_event_generator() - Core processing loop with streaming logs
+   - CSV report writing logic
+   - Gemini API integration for final blueprint generation
+   
+   EDIT THIS FOR:
+   - Adding new API endpoints
+   - Changing response formats
+   - Modifying pipeline flow
+   - Adding new query parameters
+
+2. config.py - CONFIGURATION & ENVIRONMENT
+   Location: Backend/App/config.py
+   Size: ~50 lines
+   
+   Contains:
+   - MOCK_DEV_MODE toggle (True = offline testing, False = real API)
+   - Path configurations (VIDEO_INPUT_DIR, OPTIMIZED_DIR, OUTPUT_DIR)
+   - Gemini API initialization
+   - Mock test data (MOCK_CLIPS_DATA)
+   - Mock strategic blueprint template (MOCK_STRATEGIC_BLUEPRINT)
+   
+   EDIT THIS FOR:
+   - Toggling mock mode on/off
+   - Changing directory paths
+   - Updating mock test data
+   - Adjusting file output locations
+
+3. services.py - CORE VIDEO PROCESSING SERVICES
+   Location: Backend/App/services.py
+   Size: ~400 lines
+   
+   Contains:
+   - preprocess_video_for_tokens() - Video downsampling (async FFmpeg)
+   - get_video_duration_seconds() - FFmpeg duration probing
+   - extract_json_payload() - JSON parsing from Gemini responses
+   - wait_for_file_active() - Gemini file upload polling
+   - execute_single_pass_studio_analysis() - Multi-file Gemini analysis
+   - process_single_video_with_logs() - Single video processing with logging
+   - Async semaphore for rate limiting (2 concurrent tasks)
+   - File cleanup logic (Gemini cloud + local temp files)
+   
+   EDIT THIS FOR:
+   - Changing video compression settings
+   - Modifying Gemini prompt/response handling
+   - Adjusting rate limiting (semaphore count)
+   - Changing FFmpeg parameters
+   - Adding new processing steps
+
+4. prompts.py - EDITING STRATEGIES & PROMPTS
+   Location: Backend/App/prompts.py
+   Size: ~50 lines
+   
+   Contains:
+   - BASE_JSON_INSTRUCTIONS - JSON schema requirements for responses
+   - EDITING_CONFIGS["short_form_cooking"] - 60-second viral video strategy
+     - analysis_prompt: For individual clip analysis
+     - summary_prompt: For overall blueprint generation
+   - EDITING_CONFIGS["long_form_vlog"] - Long-form YouTube strategy
+     - analysis_prompt: Documentary narrative approach
+     - summary_prompt: Multi-pillar structure generation
+   
+   EDIT THIS FOR:
+   - Creating new content strategies
+   - Modifying Gemini prompts
+   - Changing JSON response requirements
+   - Adding new editing_config profiles
+   - Adjusting prompt tone/style
+
+5. preprocess.py - VIDEO COMPRESSION UTILITIES
+   Location: Backend/App/preprocess.py
+   Size: ~60 lines
+   
+   Contains:
+   - check_ffmpeg_installed() - System dependency check
+   - compress_video_for_analysis() - FFmpeg downsampling (480p, 1 FPS)
+   - Output caching logic to avoid reprocessing
+   
+   EDIT THIS FOR:
+   - Changing video compression quality
+   - Adjusting resolution (480p → different)
+   - Changing frame rate (1 FPS → different)
+   - Adding audio handling
+   - Modifying FFmpeg codec settings
+
+6. tmp/description_assets/ - TEMPORARY DIRECTORY
+   Location: Backend/App/tmp/description_assets/
+   Auto-created, contains temporary optimized video files during processing
+   AUTO-CLEANED after pipeline completion
+   
+   EDIT THIS FOR: Manual cleanup if process crashes
+
+
+BACKEND/ OUTPUT FILES (GENERATED DURING RUN)
+================================================================================
+
+1. report.csv - PROCESSING REGISTRY
+   Location: Backend/report.csv
+   Generated by: main.py (line ~85 in pipeline_event_generator)
+   
+   Format:
+   original_filename,new_filename,description,length_seconds
+   clip_A.mp4,optimized_sizzling_shrimp_15s.mp4,"Close-up garlic bubbling...",15
+   
+   EDIT THIS FOR: Manual processing records (not recommended - regenerates)
+
+2. summary.txt - EDITING BLUEPRINT
+   Location: Backend/summary.txt
+   Generated by: main.py (Gemini API or mock template)
+   
+   Content: Markdown formatted editing strategy with:
+   - Hook section
+   - Body/main sequence
+   - Outro/conclusion
+   - Timing recommendations
+   
+   EDIT THIS FOR: Manually overriding Gemini suggestions
+
+3. OptimizedVideos/ - COMPRESSED VIDEO OUTPUT
+   Location: Backend/OptimizedVideos/
+   Created by: services.py and preprocess.py
+   
+   Contains downsampled videos ready for Gemini analysis
+   - Format: optimized_{original_name}.mp4
+   - Resolution: 480p
+   - Frame rate: 1 FPS or 0.5 FPS
+   - Audio: Stripped
+   
+   EDIT THIS FOR: Storing optimized files for re-analysis
+
+4. RawVideos/ - INPUT VIDEO DIRECTORY
+   Location: Backend/RawVideos/
+   User-provided source video files
+   
+   Supported formats: .mp4, .mov, .mkv, .avi
+   
+   EDIT THIS FOR: Adding/removing source videos
+
+
+FRONTEND/ - WEB DASHBOARD
+================================================================================
+
+1. index.html - MAIN DASHBOARD PAGE
+   Location: Frontend/index.html
+   Size: ~180 lines
+   
+   Contains:
+   - Header with brand, tabs, mock mode toggle
+   - Studio workspace tab:
+     * Pipeline configuration form (mode selector, process button)
+     * Source clips discovery grid
+     * Live status console (logs)
+     * Results display (blueprint + CSV preview)
+     * Sidebar with prompt preview
+   - Instructions tab (documentation)
+   - Modal overlay (mock mode confirmation)
+   - Links to CSS and JS
+   
+   EDIT THIS FOR:
+   - Changing UI layout
+   - Adding new form fields
+   - Modifying HTML structure
+   - Adding new sections/tabs
+   - Updating labels/text
+
+2. css/styles.css - DASHBOARD STYLING
+   Location: Frontend/css/styles.css
+   Size: ~600 lines
+   
+   Contains:
+   - CSS variables (colors, gradients, spacing)
+   - Global body styling (dark theme, fonts)
+   - Header & tab navigation styles
+   - Form controls (select, toggle, buttons)
+   - Cards and containers
+   - Animation keyframes (pulse, fade)
+   - Mock mode badge styling
+   - Status console styling
+   - Results panel and table styling
+   - Sidebar prompt styling
+   - Responsive media queries
+   - Overlay/modal styling
+   
+   EDIT THIS FOR:
+   - Changing colors/theme
+   - Adjusting layout spacing
+   - Modifying animations
+   - Updating responsive behavior
+   - Changing fonts
+   - Styling new UI elements
+
+3. js/app.js - FRONTEND APPLICATION LOGIC
+   Location: Frontend/js/app.js
+   Size: ~400 lines
+   
+   Contains:
+   - Mock data (DISCOVERED_RAW_CLIPS, CLIENT_PROMPT_MAP)
+   - Mock mode management (toggle, confirmation modal)
+   - Tab navigation setup
+   - API calls to backend:
+     * GET /api/videos - Fetch video list
+     * GET /api/process/stream - Server-Sent Events stream
+   - EventSource handling (info, progress, error, complete events)
+   - Markdown to HTML rendering
+   - CSV/TXT file download generation
+   - Live log appending to status console
+   - Prompt preview updates
+   - Button state management
+   
+   KEY FUNCTIONS:
+   - getMockModeQueryParam() - Query parameter helper
+   - updateMockModeUI() - UI sync with mock state
+   - setMockMode() - Toggle mock/real mode
+   - bindMockToggleControl() - Event handlers for toggle
+   - setupTabNavigation() - Tab switching logic
+   - renderSourceClipsStaging() - Display video grid
+   - fetchSourceClipsFromBackend() - API call wrapper
+   - updatePromptPreview() - Sync prompt with dropdown
+   - renderMarkdownToHtml() - Markdown parser
+   - appendLog() - Real-time console logging
+   - generateDataPreviewsAndDownloads() - Results display
+   
+   EDIT THIS FOR:
+   - Changing API endpoints
+   - Modifying event handling
+   - Adding new event types
+   - Changing markdown rendering
+   - Updating UI update logic
+   - Adding new frontend features
+
+
+================================================================================
+KEY RELATIONSHIPS & DATA FLOW
+================================================================================
+
+1. MOCK MODE TOGGLE
+   Frontend: app.js (setMockMode) 
+   → Backend: main.py (stream_pipeline) receives mock_mode=true/false
+   → Uses services.py or config.py mock data
+   → Output: report.csv and summary.txt
+
+2. VIDEO PROCESSING PIPELINE
+   Frontend: Click "Kickoff" button
+   → Opens EventSource to /api/process/stream
+   → main.py: stream_pipeline() generator
+   → Calls services.py: process_single_video_with_logs() for each video
+   → FFmpeg compression via preprocess.py
+   → Gemini upload & analysis
+   → CSV output to Backend/report.csv
+   → Gemini blueprint to Backend/summary.txt
+   → Frontend: Renders results
+
+3. STRATEGY SELECTION
+   Frontend: Select dropdown (id="sessionMode")
+   → Value: "short_form_cooking" or "long_form_vlog"
+   → Used by: config.py EDITING_CONFIGS[mode]
+   → Passes: Specific prompts to Gemini
+
+4. FILE STRUCTURE FOR EDITING
+   LAYOUT CHANGES: Frontend/index.html + Frontend/css/styles.css
+   STYLE CHANGES: Frontend/css/styles.css
+   LOGIC CHANGES: Frontend/js/app.js
+   API ENDPOINTS: Backend/App/main.py
+   PROCESSING LOGIC: Backend/App/services.py
+   PROMPTS: Backend/App/prompts.py
+   CONFIGURATION: Backend/App/config.py
+
+
+================================================================================
+COMMON EDITING SCENARIOS
+================================================================================
+
+SCENARIO 1: Add a new editing strategy
+   1. Edit Backend/App/prompts.py - Add new EDITING_CONFIGS entry
+   2. Edit Frontend/js/app.js - Add to CLIENT_PROMPT_MAP
+   3. Edit Frontend/index.html - Add option to select element
+
+SCENARIO 2: Change video compression quality
+   1. Edit Backend/App/preprocess.py - Modify ffmpeg_cmd parameters
+   2. Edit Backend/App/services.py - Same changes to preprocess_video_for_tokens
+
+SCENARIO 3: Modify Gemini prompts
+   1. Edit Backend/App/prompts.py - Update analysis_prompt or summary_prompt
+   2. Test with mock mode ON (Backend/App/config.py: MOCK_DEV_MODE = True)
+
+SCENARIO 4: Change UI layout
+   1. Edit Frontend/index.html - Modify structure
+   2. Edit Frontend/css/styles.css - Update styling
+   3. Edit Frontend/js/app.js - Update selectors/event handlers
+
+SCENARIO 5: Add new API endpoint
+   1. Edit Backend/App/main.py - Add @app.get/post decorator
+   2. Edit Frontend/js/app.js - Add fetch() call
+   3. Test with mock mode OFF and real API (if needed)
+
+SCENARIO 6: Change rate limiting
+   1. Edit Backend/App/main.py - Modify concurrency_semaphore = asyncio.Semaphore(X)
+   2. Edit Backend/App/services.py - Modify semaphore = asyncio.Semaphore(X)
+
+
+================================================================================
+END OF FOLDER STRUCTURE GUIDE
+================================================================================

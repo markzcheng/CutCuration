@@ -1,0 +1,817 @@
+================================================================================
+CutCuration: Automated Video Pipeline Studio - Complete Codebase
+================================================================================
+
+PROJECT OVERVIEW
+================================================================================
+CutCuration is an asynchronous AI-augmented video preprocessing and strategic 
+timeline compilation engine. It discovers raw media assets locally, optimizes 
+their structural bitrates via non-blocking worker processes, and leverages 
+Google's Gemini API to intelligently analyze video content and generate 
+professional editing strategies.
+
+================================================================================
+BACKEND/APP/MAIN.PY - FastAPI Router Engine
+================================================================================
+import csv
+import json
+import asyncio
+import mimetypes
+from pathlib import Path
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from sse_starlette.sse import EventSourceResponse
+import google.generativeai as genai
+from config import MOCK_DEV_MODE, VIDEO_INPUT_DIR, OUTPUT_DIR, MOCK_STRATEGIC_BLUEPRINT
+from services import process_single_video_with_logs, execute_single_pass_studio_analysis
+from prompts import EDITING_CONFIGS
+
+app = FastAPI(title="Video Analytics Generation Engine")
+
+# Configure CORS for broad access
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/api/process/stream")
+async def stream_pipeline(mode: str = Query(...), mock_mode: bool = Query(MOCK_DEV_MODE)):
+    """Main SSE endpoint providing live analytics logging streams."""
+    if mode not in EDITING_CONFIGS:
+        raise HTTPException(status_code=400, detail="Invalid session mode")
+    if not mock_mode and not VIDEO_INPUT_DIR.exists():
+        raise HTTPException(status_code=404, detail="Ingestion target path missing")
+    
+    video_files = []
+    if VIDEO_INPUT_DIR.exists():
+        video_files = [file_path for file_path in VIDEO_INPUT_DIR.iterdir() 
+                      if file_path.suffix.lower() in {".mp4", ".mov", ".mkv", ".avi"}]
+    
+    if not video_files and mock_mode:
+        video_files = [Path("clip_A.mp4"), Path("clip_B.mov"), Path("clip_C.mp4")]
+    elif not video_files:
+        async def fallback_error_stream():
+            yield {"event": "error", "data": "No raw assets discovered."}
+        return EventSourceResponse(fallback_error_stream())
+    
+    active_config = EDITING_CONFIGS[mode]
+    communication_queue = asyncio.Queue()
+    concurrency_semaphore = asyncio.Semaphore(2)
+    
+    async def pipeline_event_generator():
+        if MOCK_DEV_MODE:
+            yield {"event": "info", "data": "⚠️ MOCK_DEV_MODE active"}
+        
+        yield {"event": "info", "data": f"🚀 Running pipeline for mode: {mode}"}
+        
+        worker_tasks = [
+            process_single_video_with_logs(file, active_config, communication_queue, 
+                                          concurrency_semaphore, idx, mock_mode=mock_mode)
+            for idx, file in enumerate(video_files)
+        ]
+        async_gather_handle = asyncio.gather(*worker_tasks)
+        
+        while not async_gather_handle.done() or not communication_queue.empty():
+            try:
+                log_message = await asyncio.wait_for(communication_queue.get(), timeout=0.2)
+                yield {"event": "progress", "data": log_message}
+                communication_queue.task_done()
+            except asyncio.TimeoutError:
+                continue
+        
+        task_results = async_gather_handle.result()
+        valid_descriptions = []
+        successful_count = 0
+        
+        with open(OUTPUT_DIR / "report.csv", "w", newline="", encoding="utf-8") as target_csv:
+            csv_writer = csv.writer(target_csv)
+            csv_writer.writerow(["original_filename", "new_filename", "description", "length_seconds"])
+            
+            for item in task_results:
+                if isinstance(item, dict) and item.get("status") == "success":
+                    successful_count += 1
+                    csv_writer.writerow([item["original_filename"], item["new_filename"], 
+                                       item["description"], item["length_seconds"]])
+                    valid_descriptions.append(f"File: {item['new_filename']} - {item['description']}")
+        
+        yield {"event": "progress", "data": "💾 Saved report.csv"}
+        
+        if not valid_descriptions:
+            yield {"event": "error", "data": "Pipeline closed: zero successful updates"}
+            return
+        
+        yield {"event": "progress", "data": "📝 Requesting layout strategy..."}
+        
+        if mock_mode:
+            await asyncio.sleep(1)
+            strategic_blueprint = MOCK_STRATEGIC_BLUEPRINT
+        else:
+            generative_model = genai.GenerativeModel("gemini-2.5-flash")
+            combined_context = "\n".join(valid_descriptions)
+            gemini_response = await generative_model.generate_content_async(
+                [active_config["summary_prompt"], combined_context])
+            strategic_blueprint = gemini_response.text
+        
+        with open(OUTPUT_DIR / "summary.txt", "w", encoding="utf-8") as summary_file:
+            summary_file.write(strategic_blueprint)
+        
+        yield {"event": "progress", "data": "💾 Saved summary.txt"}
+        yield {"event": "complete", "data": json.dumps({
+            "processed_count": successful_count, 
+            "blueprint": strategic_blueprint
+        })}
+    
+    return EventSourceResponse(pipeline_event_generator())
+
+@app.get('/api/videos')
+async def list_raw_videos(mock_mode: bool = Query(MOCK_DEV_MODE)):
+    if VIDEO_INPUT_DIR.exists():
+        raw_files = sorted([f for f in VIDEO_INPUT_DIR.iterdir() 
+                           if f.suffix.lower() in {'.mp4', '.mov', '.mkv', '.avi'}])
+        if raw_files:
+            return [{"filename": video.name, "type": mimetypes.guess_type(video.name)[0] or 'video/mp4'}
+                   for video in raw_files]
+        if mock_mode:
+            return [{"filename": "clip_A.mp4", "type": "video/mp4"},
+                   {"filename": "clip_B.mov", "type": "video/quicktime"},
+                   {"filename": "clip_C.mp4", "type": "video/mp4"}]
+        raise HTTPException(status_code=404, detail="No raw assets found")
+    if mock_mode:
+        return [{"filename": "clip_A.mp4", "type": "video/mp4"},
+               {"filename": "clip_B.mov", "type": "video/quicktime"},
+               {"filename": "clip_C.mp4", "type": "video/mp4"}]
+    raise HTTPException(status_code=404, detail="RawVideos folder not found")
+
+================================================================================
+BACKEND/APP/CONFIG.PY - Configuration & Environment Setup
+================================================================================
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+load_dotenv()
+
+MOCK_DEV_MODE = True
+BASE_DIR = Path(__file__).resolve().parent.parent
+VIDEO_INPUT_DIR = BASE_DIR / "RawVideos"
+OPTIMIZED_DIR = BASE_DIR / "OptimizedVideos"
+OUTPUT_DIR = BASE_DIR
+
+if not MOCK_DEV_MODE:
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+MOCK_CLIPS_DATA = [
+    {
+        "new_filename": "sizzling_shrimp.mp4",
+        "description": "Close-up shot of garlic slices bubbling in melted butter",
+        "length_seconds": 15
+    },
+    {
+        "new_filename": "dicing_onions.mp4",
+        "description": "Rapid chef knife cuts reducing onion on wood block",
+        "length_seconds": 22
+    },
+    {
+        "new_filename": "skyline_sunset.mp4",
+        "description": "Cinematic wide panning shot during golden sunset",
+        "length_seconds": 45
+    }
+]
+
+MOCK_STRATEGIC_BLUEPRINT = (
+    "# MOCK EDITING STRATEGY\n\n"
+    "## 1. HOOK\n"
+    "Start with sizzling_shrimp.mp4 for acoustic impact.\n\n"
+    "## 2. BODY\n"
+    "Cut to dicing_onions.mp4 matching knife pacing.\n\n"
+    "## 3. OUTRO\n"
+    "Fade over skyline_sunset.mp4 with ambient tracks."
+)
+
+================================================================================
+BACKEND/APP/PREPROCESS.PY - Video Compression Utilities
+================================================================================
+import subprocess
+import shutil
+from pathlib import Path
+
+def check_ffmpeg_installed():
+    """Verifies ffmpeg is available on system path."""
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("System error: 'ffmpeg' not found. Install ffmpeg before running.")
+
+def compress_video_for_analysis(input_path: Path, output_dir: Path) -> Path:
+    """Downscales video to 480p @ 1 FPS for Gemini API token optimization."""
+    check_ffmpeg_installed()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"optimized_{input_path.stem}.mp4"
+    
+    if output_path.exists() and output_path.stat().st_size > 0:
+        print(f"Using cached proxy: {output_path.name}")
+        return output_path
+    
+    print(f"Compressing {input_path.name} -> 480p @ 1 FPS...")
+    
+    cmd = [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-vf", "fps=1,scale=-2:480",
+        "-c:v", "libx264",
+        "-crf", "28",
+        "-preset", "faster",
+        "-an",
+        str(output_path)
+    ]
+    
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg crashed: {result.stderr}")
+    
+    return output_path
+
+================================================================================
+BACKEND/APP/PROMPTS.PY - Editing Configuration & Prompts
+================================================================================
+BASE_JSON_INSTRUCTIONS = """
+Return as valid JSON with keys: "new_filename", "description", "length_seconds".
+1. new_filename: Short descriptive name in snake_case with duration (e.g., "dicing_onions_24sec.mp4")
+2. description: One-sentence natural language summary of actions/dialogue
+3. length_seconds: Exact video length in seconds as integer
+"""
+
+EDITING_CONFIGS = {
+    "short_form_cooking": {
+        "analysis_prompt": f"""
+        Expert video editor for viral short-form culinary content. Analyze raw cooking clip
+        with 60-second max constraint. Evaluate for high visual engagement, ASMR sounds, 
+        dynamic motion for hook, strong final dish shots. Assume high-energy voiceover overlay.
+        {BASE_JSON_INSTRUCTIONS}
+        """,
+        "summary_prompt": """
+        Expert short-form cooking editor. Suggest rapid-fire engaging sequence for 60-second 
+        vertical video. Identify best 3-second hook, fastest process sequence, ultimate payoff 
+        shot. Highlight redundant clips to discard.
+        """
+    },
+    "long_form_vlog": {
+        "analysis_prompt": f"""
+        Experienced documentary/travel vlog editor. Analyze raw video for long-form YouTube diary
+        capturing travel/daily life. Evaluate for storytelling: environmental audio, scenery,
+        on-camera talking, authentic "slice of life" moments.
+        {BASE_JSON_INSTRUCTIONS}
+        """,
+        "summary_prompt": """
+        Documentary story editor. Suggest immersive narrative structure for long-form YouTube vlog.
+        Group clips by location/chronology. Highlight talking segments as narrative pillars,
+        scenic clips as contextual B-roll.
+        """
+    }
+}
+
+================================================================================
+BACKEND/APP/SERVICES.PY - Core Video Processing Services
+================================================================================
+import asyncio, json, os, re, subprocess
+from pathlib import Path
+from typing import List
+from google import genai
+from google.genai import types
+
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+
+async def preprocess_video_for_tokens(input_video_path: str, output_dir: str) -> str:
+    """Down-sample video: 0.5 fps, 480p height, no audio for token optimization."""
+    input_path = Path(input_video_path)
+    output_path = Path(output_dir) / f"token_optimized_{input_path.name}"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    ffmpeg_cmd = [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-r", "0.5",
+        "-vf", "scale=-2:480",
+        "-an",
+        str(output_path)
+    ]
+    
+    process = await asyncio.create_subprocess_exec(
+        *ffmpeg_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        raise RuntimeError(f"FFmpeg pipeline crashed: {stderr.decode()}")
+    
+    return str(output_path)
+
+async def get_video_duration_seconds(video_path: str) -> int:
+    """Return video duration in seconds."""
+    loop = asyncio.get_running_loop()
+    
+    def probe_duration():
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip())
+        return result.stdout.strip()
+    
+    try:
+        duration_output = await loop.run_in_executor(None, probe_duration)
+        return int(float(duration_output.strip()))
+    except Exception:
+        return 10
+
+def extract_json_payload(text: str) -> dict:
+    """Extract first JSON object from text."""
+    match = re.search(r"\{.*\}", text, re.S)
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
+
+async def wait_for_file_active(file_ref, timeout_seconds: int = 30):
+    """Poll Gemini until file reaches ACTIVE state."""
+    loop = asyncio.get_running_loop()
+    
+    def get_file():
+        return client.files.get(name=file_ref.name)
+    
+    end_time = loop.time() + timeout_seconds
+    while True:
+        current_file = await loop.run_in_executor(None, get_file)
+        if getattr(current_file, 'state', None) == genai.types.FileState.ACTIVE:
+            return current_file
+        if loop.time() >= end_time:
+            raise RuntimeError(f"File {file_ref.name} never became ACTIVE")
+        await asyncio.sleep(1)
+
+async def execute_single_pass_studio_analysis(raw_video_paths: List[str], 
+                                             target_strategy_prompt: str) -> str:
+    """Multi-file single-pass: preprocess, upload to Gemini, analyze once, cleanup."""
+    optimized_local_paths = []
+    uploaded_cloud_references = []
+    tmp_workspace_dir = "./tmp/optimized_assets"
+    semaphore = asyncio.Semaphore(2)
+    
+    try:
+        for raw_path in raw_video_paths:
+            async with semaphore:
+                optimized_file = await preprocess_video_for_tokens(raw_path, tmp_workspace_dir)
+                optimized_local_paths.append(optimized_file)
+        
+        loop = asyncio.get_running_loop()
+        for local_opt_path in optimized_local_paths:
+            cloud_file_ref = await loop.run_in_executor(
+                None, lambda p=local_opt_path: client.files.upload(file=p))
+            await wait_for_file_active(cloud_file_ref)
+            uploaded_cloud_references.append(cloud_file_ref)
+        
+        prompt_payload_contents = list(uploaded_cloud_references)
+        orchestration_directive = f"""
+        Analyze all {len(uploaded_cloud_references)} source clips. Compile unified timeline 
+        storyboard based on strategy: "{target_strategy_prompt}"
+        Output as clean markdown with timestamp transitions.
+        """
+        prompt_payload_contents.append(orchestration_directive)
+        
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt_payload_contents
+            )
+        )
+        
+        return response.text
+    
+    finally:
+        loop = asyncio.get_running_loop()
+        for cloud_ref in uploaded_cloud_references:
+            try:
+                await loop.run_in_executor(None, lambda r=cloud_ref: client.files.delete(name=r.name))
+            except Exception:
+                pass
+        
+        for local_opt_path in optimized_local_paths:
+            if os.path.exists(local_opt_path):
+                try:
+                    os.remove(local_opt_path)
+                except Exception:
+                    pass
+
+async def process_single_video_with_logs(file_path, config, communication_queue, 
+                                        semaphore, idx: int, mock_mode: bool = True):
+    """Process single video clip and return structured result."""
+    filename = Path(file_path).name if not isinstance(file_path, str) else Path(file_path).name
+    await communication_queue.put(f"[{idx}] Started processing {filename}")
+    optimized_local_path = None
+    uploaded_file = None
+    
+    try:
+        async with semaphore:
+            if mock_mode:
+                await asyncio.sleep(0.5)
+                new_filename = f"processed_{filename}"
+                description = f"Auto-generated description for {filename}"
+                length_seconds = 10
+            else:
+                optimized_local_path = await preprocess_video_for_tokens(file_path, "./tmp/description_assets")
+                await communication_queue.put(f"[{idx}] Uploaded optimized clip: {Path(optimized_local_path).name}")
+                
+                loop = asyncio.get_running_loop()
+                uploaded_file = await loop.run_in_executor(
+                    None, lambda path=optimized_local_path: client.files.upload(file=path))
+                await wait_for_file_active(uploaded_file)
+                await communication_queue.put(f"[{idx}] Gemini cloud staging ready")
+                
+                prompt_text = config.get("analysis_prompt") if isinstance(config, dict) else getattr(config, "analysis_prompt", "")
+                prompt_text = (prompt_text or "Analyze and return JSON") + "\n\nRespond only with JSON object."
+                
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=[uploaded_file, prompt_text]
+                    )
+                )
+                
+                parsed = extract_json_payload(getattr(response, 'text', ''))
+                new_filename = parsed.get("new_filename", f"processed_{filename}")
+                description = parsed.get("description", f"Auto-generated for {filename}")
+                length_seconds = int(parsed.get("length_seconds", await get_video_duration_seconds(optimized_local_path)))
+            
+            await communication_queue.put(f"[{idx}] Finished processing {filename}")
+            
+            return {
+                "status": "success",
+                "original_filename": filename,
+                "new_filename": new_filename,
+                "description": description,
+                "length_seconds": length_seconds,
+            }
+    except Exception as err:
+        await communication_queue.put(f"[{idx}] Error: {err}")
+        return {"status": "failed", "original_filename": str(file_path)}
+    finally:
+        if uploaded_file is not None:
+            try:
+                await asyncio.get_running_loop().run_in_executor(
+                    None, lambda ref=uploaded_file: client.files.delete(name=ref.name))
+            except Exception:
+                pass
+        if optimized_local_path and os.path.exists(optimized_local_path):
+            try:
+                os.remove(optimized_local_path)
+            except Exception:
+                pass
+
+================================================================================
+FRONTEND/INDEX.HTML - Main Dashboard
+================================================================================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CutCuration Dashboard</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="app-header">
+            <div class="brand-group">
+                <h1 class="brand-title">🎬 CutCuration</h1>
+                <p class="brand-subtitle">Automated Video Pipeline Studio</p>
+            </div>
+            
+            <nav class="app-tabs">
+                <button class="tab-link active" data-tab="studio">Studio Workspace</button>
+                <button class="tab-link" data-tab="instructions">System Instructions</button>
+            </nav>
+
+            <div class="mock-mode-panel">
+                <div>
+                    <p class="mock-mode-group-title">Mock Test Mode</p>
+                    <div class="toggle-control">
+                        <input type="checkbox" id="mockModeToggle" checked>
+                        <label for="mockModeToggle" class="toggle-slider"></label>
+                    </div>
+                </div>
+                <span id="mockModeBadge" class="mock-mode-badge mock-mode-on">Mock mode ON</span>
+            </div>
+        </header>
+
+        <div id="studioTab" class="tab-content active-content">
+            <div class="dashboard-grid">
+                <main class="workspace-panel">
+                    <section class="controls-card">
+                        <h2>Pipeline Configuration</h2>
+                        <div class="form-group">
+                            <label for="sessionMode">Target Content Strategy</label>
+                            <select id="sessionMode">
+                                <option value="short_form_cooking">Viral Short-Form Cooking</option>
+                                <option value="long_form_vlog">Long-Form Travel Vlog</option>
+                            </select>
+                        </div>
+                        <button id="processBtn" class="pulse-button">Kickoff AI Curation Engine</button>
+                    </section>
+
+                    <section class="card Discovery-card">
+                        <h3>📁 Discovered Source Clips</h3>
+                        <div id="videoStagingArea" class="video-grid-preview"></div>
+                    </section>
+
+                    <section class="status-container" id="statusContainer">
+                        <div class="log-line info-log">📡 System Online // Analytics Idle</div>
+                    </section>
+
+                    <section class="results-layout hidden" id="resultsLayout">
+                        <div class="results-actions-header">
+                            <h2>📊 Generated Pipeline Artifacts</h2>
+                            <div class="download-actions">
+                                <a id="downloadCsvBtn" class="download-btn csv" download="report.csv">📥 CSV Report</a>
+                                <a id="downloadTxtBtn" class="download-btn txt" download="summary.txt">📄 TXT Blueprint</a>
+                            </div>
+                        </div>
+                        <div class="output-split-deck">
+                            <div class="card output-sub-card">
+                                <h3>Storyboard Blueprint</h3>
+                                <div id="blueprintContainer" class="markdown-preview"></div>
+                            </div>
+                            <div class="card output-sub-card">
+                                <h3>Data Registry</h3>
+                                <table id="csvPreviewTable">
+                                    <thead><tr><th>Original</th><th>Optimized</th><th>Duration</th></tr></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </main>
+
+                <aside class="prompt-preview-sidebar">
+                    <div class="card sidebar-card">
+                        <h3>🧠 Gemini Prompt Layer</h3>
+                        <div class="prompt-display-box">
+                            <span class="system-token">SYSTEM_PROMPT:</span>
+                            <p id="promptText">Select workflow profile</p>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+
+        <div id="instructionsTab" class="tab-content">
+            <section class="card instructions-view">
+                <h2>Documentation</h2>
+                <p>CutCuration optimizes multi-asset video inputs through background processing to structured generative payloads.</p>
+            </section>
+        </div>
+    </div>
+
+    <div id="mockConfirmOverlay" class="overlay hidden">
+        <div class="overlay-panel">
+            <h2>Real Tokens Enabled</h2>
+            <p>Switching off mock mode will use real Gemini tokens. Continue?</p>
+            <div class="overlay-actions">
+                <button id="confirmMockOffBtn" class="confirm-btn">OK</button>
+                <button id="cancelMockOffBtn" class="cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
+
+================================================================================
+FRONTEND/CSS/STYLES.CSS - Dashboard Styling (Partial - Core Styles)
+================================================================================
+:root {
+    --bg-gradient: radial-gradient(circle at top right, #1d0933, #0d0a2b, #060810);
+    --card-dark: rgba(22, 32, 51, 0.65);
+    --card-border: rgba(255, 255, 255, 0.06);
+    --accent: linear-gradient(135deg, #a855f7, #ec4899);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+}
+
+body {
+    background: var(--bg-gradient);
+    color: var(--text-main);
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    margin: 0;
+    padding: 2rem;
+    min-height: 100vh;
+}
+
+.container { max-width: 1340px; margin: 0 auto; }
+.app-header { display: flex; justify-content: space-between; gap: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.08); padding-bottom: 1.5rem; margin-bottom: 3.5rem; }
+.brand-title { margin: 0; font-size: 2.6rem; background: linear-gradient(to right, #f472b6, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.card { background: var(--card-dark); backdrop-filter: blur(16px); padding: 2rem; border-radius: 16px; border: 1px solid var(--card-border); box-shadow: 0 20px 40px -15px rgba(0,0,0,0.6); }
+.pulse-button { background: var(--accent); color: white; padding: 1rem 2rem; font-weight: 700; border-radius: 10px; cursor: pointer; }
+.dashboard-grid { display: grid; grid-template-columns: 1fr 380px; gap: 2.5rem; }
+.status-container { max-height: 220px; overflow-y: auto; font-family: monospace; background: #02040a; border-radius: 16px; padding: 1.5rem; }
+.output-split-deck { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+
+[See full CSS file in workspace]
+
+================================================================================
+FRONTEND/JS/APP.JS - Frontend Application Logic
+================================================================================
+const DISCOVERED_RAW_CLIPS = [
+    { filename: "clip_A.mp4", type: "video/mp4" },
+    { filename: "clip_B.mov", type: "video/quicktime" },
+    { filename: "clip_C.mp4", type: "video/mp4" }
+];
+
+const CLIENT_PROMPT_MAP = {
+    short_form_cooking: "Analyze raw food footage. Filter for sharp audio, pan pops, butter bubbling. 15-second ASMR sequence.",
+    long_form_vlog: "Parse multi-location scenes. Identify establishing sequences and traveling narratives. 3-pillar episodic layout."
+};
+
+let CURRENT_MOCK_MODE = true;
+
+function getMockModeQueryParam() { return CURRENT_MOCK_MODE ? 'true' : 'false'; }
+function updateMockModeUI() {
+    const toggle = document.getElementById('mockModeToggle');
+    const badge = document.getElementById('mockModeBadge');
+    if (toggle) toggle.checked = CURRENT_MOCK_MODE;
+    if (badge) {
+        badge.textContent = CURRENT_MOCK_MODE ? 'Mock mode ON' : 'Real mode';
+        badge.className = CURRENT_MOCK_MODE ? 'mock-mode-badge mock-mode-on' : 'mock-mode-badge mock-mode-off';
+    }
+}
+
+function setMockMode(enabled) {
+    CURRENT_MOCK_MODE = enabled;
+    updateMockModeUI();
+    renderSourceClipsStaging();
+}
+
+function bindMockToggleControl() {
+    const toggle = document.getElementById('mockModeToggle');
+    const confirmBtn = document.getElementById('confirmMockOffBtn');
+    const cancelBtn = document.getElementById('cancelMockOffBtn');
+    
+    if (toggle) {
+        toggle.addEventListener('change', (event) => {
+            if (!event.target.checked) {
+                showMockDisableConfirmation();
+                return;
+            }
+            setMockMode(true);
+        });
+    }
+    
+    if (confirmBtn) confirmBtn.addEventListener('click', () => { setMockMode(false); hideMockDisableConfirmation(); });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { document.getElementById('mockModeToggle').checked = true; hideMockDisableConfirmation(); });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    setupTabNavigation();
+    bindMockToggleControl();
+    updateMockModeUI();
+    await renderSourceClipsStaging();
+    updatePromptPreview();
+});
+
+function setupTabNavigation() {
+    const tabButtons = document.querySelectorAll('.tab-link');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const targetedTabId = button.getAttribute('data-tab');
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active-content'));
+            document.getElementById(`${targetedTabId}Tab`).classList.add('active-content');
+        });
+    });
+}
+
+async function renderSourceClipsStaging() {
+    const container = document.getElementById('videoStagingArea');
+    const clips = await fetchSourceClipsFromBackend();
+    container.innerHTML = clips.map(clip => `
+        <div class="video-item-node"><span class="video-icon">🎞️</span>
+        <span class="video-meta-name">${clip.filename}</span>
+        <span class="video-meta-type">${clip.type}</span></div>`).join('');
+}
+
+async function fetchSourceClipsFromBackend() {
+    try {
+        const response = await fetch(`http://127.0.0.1:8000/api/videos?mock_mode=${getMockModeQueryParam()}`);
+        if (!response.ok) throw new Error(`Status ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn('Backend error:', error);
+        return DISCOVERED_RAW_CLIPS;
+    }
+}
+
+function updatePromptPreview() {
+    const mode = document.getElementById('sessionMode').value;
+    const promptText = document.getElementById('promptText');
+    if (promptText && CLIENT_PROMPT_MAP[mode]) promptText.textContent = CLIENT_PROMPT_MAP[mode];
+}
+
+document.getElementById('sessionMode').addEventListener('change', updatePromptPreview);
+
+document.getElementById('processBtn').addEventListener('click', function() {
+    const mode = document.getElementById('sessionMode').value;
+    const statusContainer = document.getElementById('statusContainer');
+    const resultsLayout = document.getElementById('resultsLayout');
+    
+    this.classList.add('processing-active');
+    this.textContent = "Processing...";
+    resultsLayout.classList.add('hidden');
+    statusContainer.innerHTML = '<div class="log-line info-log">⚡ Initializing pipeline...</div>';
+    
+    const eventSource = new EventSource(`http://127.0.0.1:8000/api/process/stream?mode=${mode}&mock_mode=${getMockModeQueryParam()}`);
+    
+    eventSource.addEventListener('info', (event) => appendLog(statusContainer, event.data, 'info-log'));
+    eventSource.addEventListener('progress', (event) => appendLog(statusContainer, event.data, 'progress-log'));
+    eventSource.addEventListener('error', (event) => { appendLog(statusContainer, `❌ Error: ${event.data}`, 'error-log'); resetExecutionButtonState(this); eventSource.close(); });
+    eventSource.addEventListener('complete', (event) => {
+        const payload = JSON.parse(event.data);
+        document.getElementById('blueprintContainer').innerHTML = renderMarkdownToHtml(payload.blueprint);
+        generateDataPreviewsAndDownloads(payload.blueprint, payload.processed_count);
+        resetExecutionButtonState(this);
+        resultsLayout.classList.remove('hidden');
+        eventSource.close();
+    });
+});
+
+function renderMarkdownToHtml(markdown) {
+    if (!markdown) return '';
+    const escapeHtml = (text) => text.replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'})[c]);
+    const inlineFormat = (text) => text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    const lines = markdown.split(/\r?\n/);
+    let html = '';
+    let listType = null;
+    
+    const closeList = () => { if (listType === 'ul') html += '</ul>'; if (listType === 'ol') html += '</ol>'; listType = null; };
+    
+    lines.forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) { closeList(); return; }
+        
+        const heading = trimmed.match(/^(#{1,6})\s+(.*)$/);
+        if (heading) { closeList(); const level = heading[1].length; html += `<h${level}>${inlineFormat(escapeHtml(heading[2]))}</h${level}>`; return; }
+        
+        const ul = trimmed.match(/^[-*+]\s+(.*)$/);
+        if (ul) { if (listType !== 'ul') { closeList(); html += '<ul>'; listType = 'ul'; } html += `<li>${inlineFormat(escapeHtml(ul[1]))}</li>`; return; }
+        
+        const ol = trimmed.match(/^\d+\.\s+(.*)$/);
+        if (ol) { if (listType !== 'ol') { closeList(); html += '<ol>'; listType = 'ol'; } html += `<li>${inlineFormat(escapeHtml(ol[1]))}</li>`; return; }
+        
+        closeList();
+        html += `<p>${inlineFormat(escapeHtml(trimmed))}</p>`;
+    });
+    
+    closeList();
+    return `<div class="markdown-body">${html}</div>`;
+}
+
+function resetExecutionButtonState(btn) { btn.classList.remove('processing-active'); btn.textContent = "Kickoff AI Curation Engine"; }
+
+function appendLog(container, text, className) {
+    const line = document.createElement('div');
+    line.className = `log-line ${className}`;
+    line.textContent = text;
+    container.appendChild(line);
+    container.scrollTop = container.scrollHeight;
+}
+
+================================================================================
+README.MD - Project Overview
+================================================================================
+# 🎬 CutCuration: Automated Video Pipeline Studio
+
+Asynchronous AI-augmented video preprocessing and strategic timeline compilation engine.
+
+## Architecture
+
+Local video optimization → Gemini cloud analysis → Strategic editing blueprint compilation
+
+## Key Features
+
+- Non-blocking FFmpeg video compression (480p, 1 FPS, no audio)
+- Async semaphore rate limiting (2 concurrent operations, Gemini free tier 5 RPM)
+- Server-Sent Events for live pipeline monitoring
+- Mock development mode for offline testing
+- Dual strategy support: Short-form cooking & Long-form vlogs
+
+## Setup
+
+1. Create .env with GEMINI_API_KEY
+2. Install: `pip install -r requirements.txt`
+3. Run: `uvicorn main:app --reload`
+4. Open Frontend/index.html in browser
+
+================================================================================
+END OF CODEBASE
+================================================================================
