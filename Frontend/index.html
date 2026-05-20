@@ -7,56 +7,120 @@
     <link rel="stylesheet" href="css/styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1 class="brand-title">🎬 CutCuration</h1>
-            <p class="brand-subtitle">Automated Video Pipeline Studio</p>
+        
+        <header class="app-header">
+            <div class="brand-group">
+                <h1 class="brand-title">🎬 CutCuration</h1>
+                <p class="brand-subtitle">Automated Video Pipeline Studio</p>
+            </div>
+            
+            <nav class="app-tabs">
+                <button class="tab-link active" data-tab="studio">Studio Workspace</button>
+                <button class="tab-link" data-tab="instructions">System Instructions</button>
+            </nav>
         </header>
 
-        <div class="dashboard-grid">
-            
-            <main class="workspace-panel">
-                <section class="controls-card">
-                    <h2>Pipeline Configuration</h2>
-                    <div class="form-group">
-                        <label for="sessionMode">Target Content Strategy</label>
-                        <select id="sessionMode">
-                            <option value="short_form_cooking">Viral Short-Form Cooking (ASMR / Hooks)</option>
-                            <option value="long_form_vlog">Long-Form Travel Vlog (Boston Diaries / Pillars)</option>
-                        </select>
-                    </div>
-                    <button id="processBtn">Kickoff AI Curation Engine</button>
-                </section>
-
-                <section class="status-container hidden" id="statusContainer">
+        <div id="studioTab" class="tab-content active-content">
+            <div class="dashboard-grid">
+                
+                <main class="workspace-panel">
+                    <section class="controls-card">
+                        <h2>Pipeline Configuration</h2>
+                        <div class="form-group">
+                            <label for="sessionMode">Target Content Strategy</label>
+                            <select id="sessionMode">
+                                <option value="short_form_cooking">Viral Short-Form Cooking (ASMR / Hooks)</option>
+                                <option value="long_form_vlog">Long-Form Travel Vlog (Boston Diaries / Pillars)</option>
+                            </select>
+                        </div>
+                        <button id="processBtn" class="pulse-button">Kickoff AI Curation Engine</button>
                     </section>
 
-                <section class="results-layout hidden" id="resultsLayout">
-                    <div class="card">
-                        <h3>Strategic Editing Blueprint</h3>
-                        <div id="blueprintContainer" class="markdown-preview"></div>
-                    </div>
-                </section>
-            </main>
+                    <section class="card Discovery-card">
+                        <h3>📁 Discovered Source Clips</h3>
+                        <p class="section-desc">Media files detected within your local storage context:</p>
+                        <div id="videoStagingArea" class="video-grid-preview">
+                            </div>
+                    </section>
 
-            <aside class="prompt-preview-sidebar">
-                <div class="card sidebar-card">
-                    <div class="sidebar-header">
-                        <h3>🧠 Gemini Prompt Layer</h3>
-                        <span class="badge">Read-Only View</span>
+                    <section class="status-container" id="statusContainer">
+                        <div class="log-line info-log">📡 System Online // Streaming Analytics Core Idle</div>
+                        <div class="log-line progress-log" style="opacity: 0.5;">Waiting for user interaction pass... Press button above to run video ingestion matrices.</div>
+                    </section>
+
+                    <section class="results-layout hidden" id="resultsLayout">
+                        <div class="results-actions-header">
+                            <h2>📊 Generated Pipeline Artifacts</h2>
+                            <div class="download-actions">
+                                <a id="downloadCsvBtn" class="download-btn csv" download="report.csv">📥 Download Report (CSV)</a>
+                                <a id="downloadTxtBtn" class="download-btn txt" download="summary.txt">📄 Download Blueprint (TXT)</a>
+                            </div>
+                        </div>
+
+                        <div class="output-split-deck">
+                            <div class="card output-sub-card">
+                                <h3>Storyboard Blueprint</h3>
+                                <div id="blueprintContainer" class="markdown-preview"></div>
+                            </div>
+
+                            <div class="card output-sub-card">
+                                <h3>Optimized Data Registry</h3>
+                                <div class="table-responsive">
+                                    <table id="csvPreviewTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Original Video</th>
+                                                <th>Optimized Name</th>
+                                                <th>Duration</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </main>
+
+                <aside class="prompt-preview-sidebar">
+                    <div class="card sidebar-card">
+                        <div class="sidebar-header">
+                            <h3>🧠 Gemini Prompt Layer</h3>
+                            <span class="badge">Read-Only View</span>
+                        </div>
+                        <p class="sidebar-description">The analytical staging prompt transmitted to the model during execution passes:</p>
+                        <div class="prompt-display-box">
+                            <span class="system-token">SYSTEM_PROMPT:</span>
+                            <p id="promptText">Select a workflow profile option.</p>
+                        </div>
                     </div>
-                    <p class="sidebar-description">The analytical staging prompt transmitted to the model during execution passes:</p>
-                    <div class="prompt-display-box">
-                        <span class="system-token">SYSTEM_PROMPT:</span>
-                        <p id="promptText">Select a core workflow profile configuration on the left workspace window panel to display current model parsing strategies dynamically.</p>
+                </aside>
+            </div>
+        </div>
+
+        <div id="instructionsTab" class="tab-content">
+            <section class="card instructions-view animate-fade-in">
+                <h2>Documentation & Core Architecture</h2>
+                <p>Welcome to the CutCuration pipeline layout. This studio optimizes multi-asset video raw inputs through background processing systems down to structured generative model payloads.</p>
+                
+                <div class="doc-grid">
+                    <div class="doc-box">
+                        <h4>Preprocessing Node</h4>
+                        <p>Videos dropped inside <code>RawVideos/</code> are processed using FFmpeg. To protect background task limits, files are down-scaled to 480p proxy targets at 1 FPS.</p>
+                    </div>
+                    <div class="doc-box">
+                        <h4>Concurrency Throttling</h4>
+                        <p>Active batch queues run safely underneath a semaphore token locking scheme (Cap: 2 concurrent tasks) to balance speed against rate limits.</p>
                     </div>
                 </div>
-            </aside>
-
+            </section>
         </div>
+
     </div>
     <script src="js/app.js"></script>
 </body>
