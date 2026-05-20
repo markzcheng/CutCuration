@@ -9,9 +9,75 @@ const CLIENT_PROMPT_MAP = {
     long_form_vlog: "Parse comprehensive multi-location scene elements. Identify historical location assets, establishing framing sequences, and outdoor traveling narratives. Generate a balanced 3-pillar episodic layout storyboard structure."
 };
 
-document.addEventListener('DOMContentLoaded', () => {
-    setupTabNavigation();
+let CURRENT_MOCK_MODE = true;
+
+function getMockModeQueryParam() {
+    return CURRENT_MOCK_MODE ? 'true' : 'false';
+}
+
+function updateMockModeUI() {
+    const toggle = document.getElementById('mockModeToggle');
+    const badge = document.getElementById('mockModeBadge');
+    if (toggle) toggle.checked = CURRENT_MOCK_MODE;
+    if (badge) {
+        badge.textContent = CURRENT_MOCK_MODE ? 'Mock mode ON' : 'Real mode';
+        badge.className = CURRENT_MOCK_MODE ? 'mock-mode-badge mock-mode-on' : 'mock-mode-badge mock-mode-off';
+    }
+}
+
+function showMockDisableConfirmation() {
+    const overlay = document.getElementById('mockConfirmOverlay');
+    if (overlay) overlay.classList.remove('hidden');
+}
+
+function hideMockDisableConfirmation() {
+    const overlay = document.getElementById('mockConfirmOverlay');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+function setMockMode(enabled) {
+    CURRENT_MOCK_MODE = enabled;
+    updateMockModeUI();
     renderSourceClipsStaging();
+}
+
+function bindMockToggleControl() {
+    const toggle = document.getElementById('mockModeToggle');
+    const confirmBtn = document.getElementById('confirmMockOffBtn');
+    const cancelBtn = document.getElementById('cancelMockOffBtn');
+
+    if (toggle) {
+        toggle.addEventListener('change', (event) => {
+            const checked = event.target.checked;
+            if (!checked) {
+                showMockDisableConfirmation();
+                return;
+            }
+            setMockMode(true);
+        });
+    }
+
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+            setMockMode(false);
+            hideMockDisableConfirmation();
+        });
+    }
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            const toggleField = document.getElementById('mockModeToggle');
+            if (toggleField) toggleField.checked = true;
+            hideMockDisableConfirmation();
+        });
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    setupTabNavigation();
+    bindMockToggleControl();
+    updateMockModeUI();
+    await renderSourceClipsStaging();
     updatePromptPreview();
 });
 
@@ -31,17 +97,31 @@ function setupTabNavigation() {
     });
 }
 
-function renderSourceClipsStaging() {
+async function renderSourceClipsStaging() {
     const container = document.getElementById('videoStagingArea');
     if (!container) return;
-    
-    container.innerHTML = DISCOVERED_RAW_CLIPS.map(clip => `
+
+    const clips = await fetchSourceClipsFromBackend();
+    container.innerHTML = clips.map(clip => `
         <div class="video-item-node animate-fade-in">
             <span class="video-icon">🎞️</span>
             <span class="video-meta-name" title="${clip.filename}">${clip.filename}</span>
             <span class="video-meta-type">${clip.type}</span>
         </div>
     `).join('');
+}
+
+async function fetchSourceClipsFromBackend() {
+    try {
+        const response = await fetch(`http://127.0.0.1:8000/api/videos?mock_mode=${getMockModeQueryParam()}`);
+        if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+        const clips = await response.json();
+        if (Array.isArray(clips) && clips.length) return clips;
+    } catch (error) {
+        console.warn('Could not load RawVideos from backend:', error);
+    }
+
+    return DISCOVERED_RAW_CLIPS;
 }
 
 function updatePromptPreview() {
@@ -70,7 +150,7 @@ document.getElementById('processBtn').addEventListener('click', function() {
     statusContainer.innerHTML = '<div class="log-line info-log">⚡ Initializing connection pipeline matrix...</div>';
     blueprintContainer.textContent = '';
 
-    const eventSource = new EventSource(`http://127.0.0.1:8000/api/process/stream?mode=${mode}`);
+    const eventSource = new EventSource(`http://127.0.0.1:8000/api/process/stream?mode=${mode}&mock_mode=${getMockModeQueryParam()}`);
 
     eventSource.addEventListener('info', (event) => {
         appendLog(statusContainer, event.data, 'info-log');
@@ -90,7 +170,7 @@ document.getElementById('processBtn').addEventListener('click', function() {
         const payload = JSON.parse(event.data);
         appendLog(statusContainer, `🎉 Core pipeline finished processing successfully.`, 'success-log');
         
-        blueprintContainer.textContent = payload.blueprint;
+        blueprintContainer.innerHTML = renderMarkdownToHtml(payload.blueprint);
         generateDataPreviewsAndDownloads(payload.blueprint, payload.processed_count);
         
         resetExecutionButtonState(processButton);
@@ -98,6 +178,73 @@ document.getElementById('processBtn').addEventListener('click', function() {
         eventSource.close();
     });
 });
+
+function renderMarkdownToHtml(markdown) {
+    if (!markdown) return '';
+    const escapeHtml = (text) => text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const inlineFormat = (text) => text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    const lines = markdown.split(/\r?\n/);
+    let html = '';
+    let listType = null;
+
+    const closeList = () => {
+        if (listType === 'ul') html += '</ul>';
+        if (listType === 'ol') html += '</ol>';
+        listType = null;
+    };
+
+    lines.forEach((rawLine) => {
+        const line = rawLine.trim();
+        if (!line) {
+            closeList();
+            return;
+        }
+
+        const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+        if (headingMatch) {
+            closeList();
+            const level = headingMatch[1].length;
+            html += `<h${level}>${inlineFormat(escapeHtml(headingMatch[2]))}</h${level}>`;
+            return;
+        }
+
+        const unorderedMatch = line.match(/^[-*+]\s+(.*)$/);
+        if (unorderedMatch) {
+            if (listType !== 'ul') {
+                closeList();
+                html += '<ul>';
+                listType = 'ul';
+            }
+            html += `<li>${inlineFormat(escapeHtml(unorderedMatch[1]))}</li>`;
+            return;
+        }
+
+        const orderedMatch = line.match(/^\d+\.\s+(.*)$/);
+        if (orderedMatch) {
+            if (listType !== 'ol') {
+                closeList();
+                html += '<ol>';
+                listType = 'ol';
+            }
+            html += `<li>${inlineFormat(escapeHtml(orderedMatch[1]))}</li>`;
+            return;
+        }
+
+        closeList();
+        html += `<p>${inlineFormat(escapeHtml(line))}</p>`;
+    });
+
+    closeList();
+    return `<div class="markdown-body">${html}</div>`;
+}
 
 function resetExecutionButtonState(buttonElement) {
     buttonElement.classList.remove('processing-active');

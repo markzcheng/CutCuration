@@ -22,6 +22,17 @@
                 <button class="tab-link active" data-tab="studio">Studio Workspace</button>
                 <button class="tab-link" data-tab="instructions">System Instructions</button>
             </nav>
+
+            <div class="mock-mode-panel">
+                <div>
+                    <p class="mock-mode-group-title">Mock Test Mode</p>
+                    <div class="toggle-control">
+                        <input type="checkbox" id="mockModeToggle" checked>
+                        <label for="mockModeToggle" class="toggle-slider"></label>
+                    </div>
+                </div>
+                <span id="mockModeBadge" class="mock-mode-badge mock-mode-on">Mock mode ON</span>
+            </div>
         </header>
 
         <div id="studioTab" class="tab-content active-content">
@@ -122,6 +133,18 @@
         </div>
 
     </div>
+
+    <div id="mockConfirmOverlay" class="overlay hidden">
+        <div class="overlay-panel">
+            <h2>Real Tokens Enabled</h2>
+            <p>Switching off mock mode will use real Gemini tokens for backend requests. Continue?</p>
+            <div class="overlay-actions">
+                <button id="confirmMockOffBtn" class="confirm-btn">OK</button>
+                <button id="cancelMockOffBtn" class="cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="js/app.js"></script>
 </body>
 </html>

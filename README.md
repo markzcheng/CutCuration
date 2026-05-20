@@ -82,7 +82,7 @@ You can validate full front-to-back application state changes instantly without 
 ```python
 # True  = Runs pipeline simulation using isolated offline sample data elements
 # False = Activates real-time FFmpeg processing, file uploads, and live Gemini API requests
-MOCK_DEV_MODE = True
+MOCK_DEV_MODE = False
 ```
 
 ### 3. Launching the Backend API

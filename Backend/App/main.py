@@ -1,6 +1,7 @@
 import csv
 import json
 import asyncio
+import mimetypes
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -9,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 import google.generativeai as genai
 
 from config import MOCK_DEV_MODE, VIDEO_INPUT_DIR, OUTPUT_DIR, MOCK_STRATEGIC_BLUEPRINT
-from services import process_single_video_with_logs
+from services import process_single_video_with_logs, execute_single_pass_studio_analysis
 from prompts import EDITING_CONFIGS
 
 app = FastAPI(title="Video Analytics Generation Engine")
@@ -24,7 +25,10 @@ app.add_middleware(
 )
 
 @app.get("/api/process/stream")
-async def stream_pipeline(mode: str = Query(...)):
+async def stream_pipeline(
+    mode: str = Query(...),
+    mock_mode: bool = Query(MOCK_DEV_MODE)
+):
     """
     Main entrypoint SSE Endpoint providing live analytics logging streams.
     
@@ -35,7 +39,7 @@ async def stream_pipeline(mode: str = Query(...)):
     if mode not in EDITING_CONFIGS:
         raise HTTPException(status_code=400, detail="Invalid session mode profile identifier.")
         
-    if not MOCK_DEV_MODE and not VIDEO_INPUT_DIR.exists():
+    if not mock_mode and not VIDEO_INPUT_DIR.exists():
         raise HTTPException(status_code=404, detail="Ingestion target path missing.")
         
     # 2. Identify and gather media files
@@ -47,7 +51,7 @@ async def stream_pipeline(mode: str = Query(...)):
         ]
         
     # Inject mock file mappings if environment targets are operating in simulation parameters
-    if not video_files and MOCK_DEV_MODE:
+    if not video_files and mock_mode:
         video_files = [Path("clip_A.mp4"), Path("clip_B.mov"), Path("clip_C.mp4")]
     elif not video_files:
         async def fallback_error_stream():
@@ -70,7 +74,7 @@ async def stream_pipeline(mode: str = Query(...)):
         
         # Gather execution tasks concurrently across the file cluster list
         worker_tasks = [
-            process_single_video_with_logs(file, active_config, communication_queue, concurrency_semaphore, idx)
+            process_single_video_with_logs(file, active_config, communication_queue, concurrency_semaphore, idx, mock_mode=mock_mode)
             for idx, file in enumerate(video_files)
         ]
         async_gather_handle = asyncio.gather(*worker_tasks)
@@ -114,7 +118,7 @@ async def stream_pipeline(mode: str = Query(...)):
         yield {"event": "progress", "data": "📝 Requesting layout strategy framework matrix pass..."}
         
         # 6. Structural Synthesis Engine Processing Sequence
-        if MOCK_DEV_MODE:
+        if mock_mode:
             await asyncio.sleep(1)
             strategic_blueprint = MOCK_STRATEGIC_BLUEPRINT
         else:
@@ -138,3 +142,47 @@ async def stream_pipeline(mode: str = Query(...)):
         }
 
     return EventSourceResponse(pipeline_event_generator())
+
+
+def _guess_video_type(file_path: Path) -> str:
+    mime_type, _ = mimetypes.guess_type(file_path.name)
+    return mime_type or 'video/mp4'
+
+@app.get('/api/videos')
+async def list_raw_videos(mock_mode: bool = Query(MOCK_DEV_MODE)):
+    if VIDEO_INPUT_DIR.exists():
+        raw_files = sorted(
+            [f for f in VIDEO_INPUT_DIR.iterdir() if f.suffix.lower() in {'.mp4', '.mov', '.mkv', '.avi'}]
+        )
+        if raw_files:
+            return [
+                {"filename": video.name, "type": _guess_video_type(video)}
+                for video in raw_files
+            ]
+        if mock_mode:
+            return [
+                {"filename": "clip_A.mp4", "type": "video/mp4"},
+                {"filename": "clip_B.mov", "type": "video/quicktime"},
+                {"filename": "clip_C.mp4", "type": "video/mp4"}
+            ]
+        raise HTTPException(status_code=404, detail="No raw assets discovered in RawVideos.")
+    if mock_mode:
+        return [
+            {"filename": "clip_A.mp4", "type": "video/mp4"},
+            {"filename": "clip_B.mov", "type": "video/quicktime"},
+            {"filename": "clip_C.mp4", "type": "video/mp4"}
+        ]
+    raise HTTPException(status_code=404, detail="RawVideos folder not found.")
+
+@app.post("/api/process/batch")
+async def process_video_batch(strategy_mode: str = Query(...)):
+    # 1. Target the files your workspace found
+    video_batch = ["./RawVideos/clip_A.mp4", "./RawVideos/clip_B.mov"]
+    
+    # 2. Get the prompt text map based on strategy selection
+    strategy_prompt = "Your short-form or long-form prompt requirements..."
+    
+    # 3. Fire the single-pass architecture
+    markdown_blueprint = await execute_single_pass_studio_analysis(video_batch, strategy_prompt)
+    
+    return {"status": "success", "blueprint": markdown_blueprint}
