@@ -3,6 +3,7 @@ import json
 import asyncio
 import mimetypes
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,8 @@ app.add_middleware(
 @app.get("/api/process/stream")
 async def stream_pipeline(
     mode: str = Query(...),
-    mock_mode: bool = Query(MOCK_DEV_MODE)
+    mock_mode: bool = Query(MOCK_DEV_MODE),
+    prompt_override: Optional[str] = Query(None)
 ):
     """
     Main entrypoint SSE Endpoint providing live analytics logging streams.
@@ -59,7 +61,9 @@ async def stream_pipeline(
         return EventSourceResponse(fallback_error_stream())
         
     # 3. Setup core pipeline components
-    active_config = EDITING_CONFIGS[mode]
+    active_config = dict(EDITING_CONFIGS[mode])
+    if prompt_override:
+        active_config["analysis_prompt"] = prompt_override
     communication_queue = asyncio.Queue()
     concurrency_semaphore = asyncio.Semaphore(2)  # Caps concurrent generation limits smoothly
     
@@ -147,6 +151,16 @@ async def stream_pipeline(
 def _guess_video_type(file_path: Path) -> str:
     mime_type, _ = mimetypes.guess_type(file_path.name)
     return mime_type or 'video/mp4'
+
+@app.get('/api/prompts/defaults')
+async def get_prompt_defaults():
+    return {
+        mode: {
+            "analysis_prompt": config["analysis_prompt"],
+            "summary_prompt": config["summary_prompt"]
+        }
+        for mode, config in EDITING_CONFIGS.items()
+    }
 
 @app.get('/api/videos')
 async def list_raw_videos(mock_mode: bool = Query(MOCK_DEV_MODE)):

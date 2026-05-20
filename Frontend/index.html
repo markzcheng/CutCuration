@@ -49,6 +49,20 @@
                             </select>
                         </div>
                         <button id="processBtn" class="pulse-button">Kickoff AI Curation Engine</button>
+
+                        <div class="prompt-config-card card">
+                            <div class="prompt-card-header">
+                                <div>
+                                    <h3>🧠 Gemini Prompt Layer</h3>
+                                    <p class="sidebar-description">Editable prompt passed to the model. Defaults come from backend <code>prompts.py</code>.</p>
+                                </div>
+                                <button id="resetPromptBtn" class="reset-button" type="button">Reset</button>
+                            </div>
+                            <textarea id="promptEditor" class="prompt-textarea" rows="10" aria-label="Gemini prompt editor"></textarea>
+                            <div class="prompt-footer">
+                                <span id="promptStatusBadge" class="badge">Default prompt active</span>
+                            </div>
+                        </div>
                     </section>
 
                     <section class="card Discovery-card">
@@ -97,20 +111,6 @@
                         </div>
                     </section>
                 </main>
-
-                <aside class="prompt-preview-sidebar">
-                    <div class="card sidebar-card">
-                        <div class="sidebar-header">
-                            <h3>🧠 Gemini Prompt Layer</h3>
-                            <span class="badge">Read-Only View</span>
-                        </div>
-                        <p class="sidebar-description">The analytical staging prompt transmitted to the model during execution passes:</p>
-                        <div class="prompt-display-box">
-                            <span class="system-token">SYSTEM_PROMPT:</span>
-                            <p id="promptText">Select a workflow profile option.</p>
-                        </div>
-                    </div>
-                </aside>
             </div>
         </div>
 

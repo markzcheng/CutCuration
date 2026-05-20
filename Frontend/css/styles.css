@@ -292,12 +292,16 @@ td { color: #cbd5e1; word-break: break-all; }
 tr:last-child td { border-bottom: none; }
 
 /* --- Sidebar System Prompt Card --- */
-.sidebar-card { border-left: 3px solid #ec4899; }
-.sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; }
-.sidebar-header h3 { margin: 0; font-size: 1.1rem; }
+.prompt-config-card { margin-top: 1.5rem; }
+.prompt-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.prompt-card-header h3 { margin: 0; font-size: 1.15rem; }
 .badge { background: rgba(255, 255, 255, 0.08); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; color: #f472b6; }
-.sidebar-description { font-size: 0.8rem; color: #94a3b8; margin: 0 0 1rem 0; }
-.prompt-display-box { background: rgba(15, 23, 42, 0.7); padding: 1rem; border-radius: 8px; font-size: 0.8rem; line-height: 1.5; color: #94a3b8; }
+.sidebar-description, .prompt-footer { font-size: 0.85rem; color: #94a3b8; margin: 0; }
+.prompt-textarea { width: 100%; min-height: 240px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); background: #060913; color: #e2e8f0; padding: 1rem; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.95rem; line-height: 1.6; }
+.reset-button { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: var(--text-main); padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.9rem; cursor: pointer; transition: all 0.2s ease; }
+.reset-button:hover { transform: translateY(-1px); border-color: #a855f7; color: #c084fc; }
+.prompt-footer { margin-top: 1rem; display: flex; justify-content: flex-start; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.badge-custom { background: rgba(236, 72, 153, 0.14); color: #fda4af; border: 1px solid rgba(236, 72, 153, 0.28); }
 .system-token { font-family: monospace; color: #a855f7; font-weight: 700; display: block; margin-bottom: 0.4rem; }
 
 /* --- Miscellaneous View Control Blocks --- */

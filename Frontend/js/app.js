@@ -10,6 +10,82 @@ const CLIENT_PROMPT_MAP = {
 };
 
 let CURRENT_MOCK_MODE = true;
+let PROMPT_DEFAULTS = {};
+let PROMPT_DIRTY = false;
+
+async function loadPromptDefaults() {
+    try {
+        const response = await fetch('http://127.0.0.1:8000/api/prompts/defaults');
+        if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+        PROMPT_DEFAULTS = await response.json();
+    } catch (error) {
+        console.warn('Could not load prompt defaults from backend:', error);
+        PROMPT_DEFAULTS = {
+            short_form_cooking: { analysis_prompt: CLIENT_PROMPT_MAP.short_form_cooking },
+            long_form_vlog: { analysis_prompt: CLIENT_PROMPT_MAP.long_form_vlog }
+        };
+    }
+}
+
+function getSelectedSessionMode() {
+    const modeField = document.getElementById('sessionMode');
+    return modeField ? modeField.value : 'short_form_cooking';
+}
+
+function getCurrentDefaultPrompt() {
+    const mode = getSelectedSessionMode();
+    const modeConfig = PROMPT_DEFAULTS[mode] || {};
+    return modeConfig.analysis_prompt || CLIENT_PROMPT_MAP[mode] || '';
+}
+
+function setPromptEditorValue(promptValue, dirty = false) {
+    const editor = document.getElementById('promptEditor');
+    if (!editor) return;
+    editor.value = promptValue;
+    PROMPT_DIRTY = dirty;
+    updatePromptStatusBadge();
+}
+
+function updatePromptStatusBadge() {
+    const badge = document.getElementById('promptStatusBadge');
+    if (!badge) return;
+    badge.textContent = PROMPT_DIRTY ? 'Custom prompt active' : 'Default prompt active';
+    badge.className = PROMPT_DIRTY ? 'badge badge-custom' : 'badge';
+}
+
+function initPromptEditorControls() {
+    const editor = document.getElementById('promptEditor');
+    const resetButton = document.getElementById('resetPromptBtn');
+    const modeSelect = document.getElementById('sessionMode');
+
+    if (editor) {
+        editor.addEventListener('input', () => {
+            PROMPT_DIRTY = true;
+            updatePromptStatusBadge();
+        });
+    }
+
+    if (resetButton) {
+        resetButton.addEventListener('click', () => {
+            setPromptEditorValue(getCurrentDefaultPrompt(), false);
+        });
+    }
+
+    if (modeSelect) {
+        modeSelect.addEventListener('change', () => {
+            if (!PROMPT_DIRTY) {
+                setPromptEditorValue(getCurrentDefaultPrompt(), false);
+            }
+        });
+    }
+}
+
+function getPromptOverrideQuery() {
+    const editor = document.getElementById('promptEditor');
+    if (!editor || !PROMPT_DIRTY) return '';
+    const value = editor.value.trim();
+    return value ? `&prompt_override=${encodeURIComponent(value)}` : '';
+}
 
 function getMockModeQueryParam() {
     return CURRENT_MOCK_MODE ? 'true' : 'false';
@@ -78,7 +154,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindMockToggleControl();
     updateMockModeUI();
     await renderSourceClipsStaging();
-    updatePromptPreview();
+    await loadPromptDefaults();
+    initPromptEditorControls();
+    setPromptEditorValue(getCurrentDefaultPrompt(), false);
 });
 
 function setupTabNavigation() {
@@ -124,15 +202,6 @@ async function fetchSourceClipsFromBackend() {
     return DISCOVERED_RAW_CLIPS;
 }
 
-function updatePromptPreview() {
-    const mode = document.getElementById('sessionMode').value;
-    const promptText = document.getElementById('promptText');
-    if (promptText && CLIENT_PROMPT_MAP[mode]) {
-        promptText.textContent = CLIENT_PROMPT_MAP[mode];
-    }
-}
-document.getElementById('sessionMode').addEventListener('change', updatePromptPreview);
-
 // --- PIPELINE STREAM MECHANICS ENGINE ---
 document.getElementById('processBtn').addEventListener('click', function() {
     const processButton = this;
@@ -150,7 +219,8 @@ document.getElementById('processBtn').addEventListener('click', function() {
     statusContainer.innerHTML = '<div class="log-line info-log">⚡ Initializing connection pipeline matrix...</div>';
     blueprintContainer.textContent = '';
 
-    const eventSource = new EventSource(`http://127.0.0.1:8000/api/process/stream?mode=${mode}&mock_mode=${getMockModeQueryParam()}`);
+    const promptOverrideQuery = getPromptOverrideQuery();
+    const eventSource = new EventSource(`http://127.0.0.1:8000/api/process/stream?mode=${mode}&mock_mode=${getMockModeQueryParam()}${promptOverrideQuery}`);
 
     eventSource.addEventListener('info', (event) => {
         appendLog(statusContainer, event.data, 'info-log');
